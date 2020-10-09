@@ -9,13 +9,13 @@
     $charArray = $sentence.toCharArray();
     $object = @{
         "sentence" = $sentence;
-        "timeScale" = 0.25;
+        "timeScale" = 0.50;
         "characters" = @();
         "filename" = "${filename}.mp4";
     };
     foreach($char in $charArray) {
         if($char -cmatch '[\u4e00-\u9fff]'){
-            Write-Host $char;
+            Write-Host "Press space when you hear $char";
             $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown') | out-null;
         }
         $timestamp = $stopwatch.Elapsed.TotalMilliseconds;
@@ -23,8 +23,6 @@
     }
     ConvertTo-Json $object | Set-Content -Encoding UTF8 "${filename}.json"
 };
-
-
 
 function CreateSlowedFile {
     Param (
@@ -34,21 +32,16 @@ function CreateSlowedFile {
     Write-Host "Creating slowed file $slowedFile";
     ffmpeg.exe -i "${filename}.mp4" `
         -y `
-        -loglevel error `
+        -loglevel fatal `
         -vn `
-        -filter:a "atempo=0.5,atempo=0.5" `
+        -filter:a "atempo=0.5" `
         "$slowedFile";
 }
 
-function RotateVideo {
+function RecordSentence {
     Param (
-        [string] [Parameter(Mandatory=$true)] $filename
+        [string] [Parameter(Mandatory=$true)] $sentence
     );
-
-}
-
-
-foreach($sentence in Get-Content -encoding UTF8 $args[0]) {
     # Create a without invalid characters
     $filename = $sentence;
     [System.IO.Path]::GetInvalidFileNameChars() | % {$filename = $filename.replace($_,'_')};
@@ -56,16 +49,16 @@ foreach($sentence in Get-Content -encoding UTF8 $args[0]) {
     # Record the sentence to filename.mp4
     Write-Host "Recording: $sentence press q to finish";
     ffmpeg.exe -y `
-        -loglevel error `
+        -loglevel fatal `
         -f dshow ` `
         -i video="DroidCam Source 3":audio="Microphone (DroidCam Virtual Audio)" `
         "${filename}_90.mp4";
 
     Write-Host "Rotating video 90 degrees";
     ffmpeg.exe -y `
-        -loglevel error `
+        -loglevel fatal `
         -i "${filename}_90.mp4" `
-        -vf "transpose=1" `
+        -vf "transpose=2" `
         "${filename}.mp4" 
 
 
@@ -74,6 +67,7 @@ foreach($sentence in Get-Content -encoding UTF8 $args[0]) {
 
     $slowFilename = "slow_${filename}.aac";
     # Play the slowed down audio
+
     $job = Start-Job `
         -InputObject $slowFilename `
         -Init ([ScriptBlock]::Create("Set-Location '$pwd'")) `
@@ -85,15 +79,20 @@ foreach($sentence in Get-Content -encoding UTF8 $args[0]) {
                 );
                 Write-Output "Playing $slowFilename";
                 ffplay.exe `
-                    -loglevel error `
+                    -loglevel fatal `
                     -autoexit `
                     -nodisp $slowFilename;
                 Write-Output "Finished playing $slowFilename";
             };
             PlaySlowedAudio $input; 
         };
-    Write-Host "Press any key once you hear the character below being pronounced";
-    # Record the speech timing
-    RecordSpeechTiming $filename $sentence;
-}
 
+    try {
+      Write-Host "Press any key once you hear the character below being pronounced";
+      # Record the speech timing
+      RecordSpeechTiming $filename $sentence;
+    } finally {
+      $job | Remove-Job -Force;
+    }
+
+}
