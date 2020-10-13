@@ -20,30 +20,37 @@ foreach ($word in $hsk1Words) {
     }
 }
 
-$wordPositions=@{}
-$i=0;
-Foreach ($character in Get-Content -Raw $args[0] -Encoding UTF8) {
-    if (!$wordPositions.ContainsKey($character)) {
+$wordPositions=@{};
+$i=1;
+$text=Get-Content -Raw $args[0] -Encoding UTF8
+Foreach ($character in $text.ToCharArray()) {
+    if (!$wordPositions[$character]) {
         $wordPositions[$character] = [System.Collections.ArrayList]@();
     }
-    $wordPositions[$character].Add($i);
-    $wordPositions[$character].Length;
-    Write-Host "what";
-    $i++;
+    $wordPositions[$character].Add($i) | Out-Null;
+    $i += 1;
 }
 
 $wordCounts = @{};
-foreach ($character in $wordPositions) {
-    $wordPositions[$character].Length;
-    $wordCounts[$character] = $wordPositions[$character].Length;
-    Write-Host "what2";
+foreach ($character in $wordPositions.GetEnumerator()) {
+    $wordCounts[$character.Name] = $character.Value;
 }
 
 $standardDeviations = @{};
-foreach ($character in $wordPositions) {
-    $decimals = $wordPositions[$character] | % { $_ / $i };
-    $standardDeviations[$character] = StandardDeviation $decimals;
+foreach ($character in $wordPositions.GetEnumerator()) {
+    $decimals = $character.Value | % { $_ / $i };
+    if ($decimals.Length.Equals(1)) {
+        $sd = 0;
+    }
+    else {
+        $sd = StandardDeviation $decimals;
+    }
+    $standardDeviations[$character.Name] = @{Deviation = $sd; Positions = $decimals | % { ([math]::Round($_, 2) * 100).toString() + "%" }}
 }
 
-# $wordCounts.GetEnumerator() | Sort-Object -Property value -Descending
-# $standardDeviations.GetEnumerator() | Sort-Object -Property value -Descending
+$standardDeviations.GetEnumerator() | Sort-Object -Property {$_.Value['Deviation']} -Descending | Select -Property {
+    $d = [math]::Round($_.Value["Deviation"], 3);
+    $p = $_.Value["Positions"];
+    $c = $_.Key;
+    return "$c $d ($p)"
+}

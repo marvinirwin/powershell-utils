@@ -60,6 +60,7 @@ function RecordSentence {
         -i "${filename}_90.mp4" `
         -vf "transpose=2" `
         "${filename}.mp4" 
+    Remove-Item "${filename}_90.mp4"
 
 
     # Create a slowed version of the file "slow_$filename.mp4"
@@ -83,6 +84,7 @@ function RecordSentence {
                     -autoexit `
                     -nodisp $slowFilename;
                 Write-Output "Finished playing $slowFilename";
+
             };
             PlaySlowedAudio $input; 
         };
