@@ -13,7 +13,11 @@ foreach($sentence in $splits) {
     $sentence = $sentence + "。";
     $confirmation = Read-Host "Record $sentence (y/n)?"
     if ($confirmation -eq 'y') {
-          RecordSentence $sentence;
+        $recordSuccess = "n";
+        while ($recordSuccess -eq "n") {
+            RecordSentence $sentence;
+            $recordSuccess = Read-Host "Press (n) to try again, or any key to continue"
+        }
     }
 }
 

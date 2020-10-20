@@ -1,4 +1,22 @@
-﻿function RecordSpeechTiming {
+﻿function HashString {
+    Param(
+        [string] [Parameter(Mandatory=$true)] $inputString
+    )
+    $stream = [IO.MemoryStream]::new([byte[]][char[]]$inputString)
+    return Get-FileHash -InputStream $mystream -Algorithm SHA256
+}
+
+#http://jongurgul.com/blog/get-stringhash-get-filehash/ 
+Function Get-StringHash([String] $String,$HashName = "SHA1") 
+{ 
+$StringBuilder = New-Object System.Text.StringBuilder 
+[System.Security.Cryptography.HashAlgorithm]::Create($HashName).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($String))|%{ 
+[Void]$StringBuilder.Append($_.ToString("x2")) 
+} 
+$StringBuilder.ToString() 
+}
+
+function RecordSpeechTiming {
     Param (
         [string] [Parameter(Mandatory=$true)] $filename,
         [string] [Parameter(Mandatory=$true)] $sentence
@@ -43,8 +61,7 @@ function RecordSentence {
         [string] [Parameter(Mandatory=$true)] $sentence
     );
     # Create a without invalid characters
-    $filename = $sentence;
-    [System.IO.Path]::GetInvalidFileNameChars() | % {$filename = $filename.replace($_,'_')};
+    $filename = Get-StringHash $sentence.Normalize([Text.NormalizationForm]::FormC);
 
     # Record the sentence to filename.mp4
     Write-Host "Recording: $sentence press q to finish";
