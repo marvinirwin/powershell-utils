@@ -1,11 +1,13 @@
-﻿function CopyFileToVideo {
+﻿[string]$ltUser = $env:LT_USER;
+[string]$ltKeyPassword = $env:LT_KEY_PASSWORD;
+[securestring]$secStringPassword = ConvertTo-SecureString $ltKeyPassword -AsPlainText -Force;
+[pscredential]$credential = New-Object System.Management.Automation.PSCredential ($ltUser, $secStringPassword);
+
+function CopyFileToVideo {
     Param(
         [string] [Parameter(Mandatory=$true)] $filename
     )
-    [string]$ltUser = $env:LT_USER;
-    [string]$ltKeyPassword = $env:LT_KEY_PASSWORD;
-    [securestring]$secStringPassword = ConvertTo-SecureString $ltKeyPassword -AsPlainText -Force;
-    [pscredential]$credential = New-Object System.Management.Automation.PSCredential ($ltUser, $secStringPassword);
+
     Set-SCPFile `
         -ComputerName 'marvinirwin.com' `
         -RemotePath "/video/" `
