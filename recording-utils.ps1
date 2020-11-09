@@ -7,9 +7,9 @@ function CopyFileToVideo {
     Param(
         [string] [Parameter(Mandatory=$true)] $filename
     )
-
+    Write-Host "Moving $filename to marvinirwin.com";
     Set-SCPFile `
-        -ComputerName 'marvinirwin.com' `
+        -ComputerName '165.227.49.247' `
         -RemotePath "/video/" `
         -LocalFile "$filename" `
         -Credential $credential `
@@ -76,11 +76,20 @@ function CreateSlowedFile {
         "$slowedFile";
 }
 
+function Read-Char() {
+    Param (
+        [string] [Parameter(Mandatory=$true)] $prompt
+    );
+    Write-Host $prompt;
+    $key = $Host.UI.RawUI.ReadKey();
+    return $key.Character;
+}
+
 function RecordSentence {
     Param (
         [string] [Parameter(Mandatory=$true)] $sentence
     );
-    $shouldRecord = Read-Host "Record $sentence ?  Press (y) to record, or enter to continue"
+    $shouldRecord = Read-Char "Record $sentence ?  Press (y) to record, or enter to continue"
 
     if ($shouldRecord -ne "y") {
         return;
@@ -95,17 +104,23 @@ function RecordSentence {
     $recordSuccess = "r";
     while ($recordSuccess -eq "r") {
         ffmpeg.exe -y `
-            -loglevel error `
+            -loglevel fatal `
             -f dshow `
-            -rtbufsize 100M `
+            -rtbufsize 2G `
             -framerate 60 `
-            -audio_buffer_size 100 `
+            -audio_buffer_size 30 `
             -i video="Logitech BRIO":audio="Microphone (Logitech BRIO)" `
+            -filter:v "transpose=1" `
+            -preset ultrafast `
+            -tune zerolatency `
             "$filename.mov" `
-            -pix_fmt yuv420p;
-            # -f sdl :0;
+            -pix_fmt yuv420p `
+            -window_x -1 `
+            -window_y -1 `
+            -vf scale=320:-1 `
+            -f sdl :0;
         CopyFileToVideo "$filename.mov";
-        $recordSuccess = Read-Host "Did the recording succeed? Press (r) to try again, or enter to continue"
+        $recordSuccess = Read-Char "Did the recording succeed? Press (r) to try again, or enter to continue";
     }
 
     # Create a slowed version of the file "slow_$filename.mov"`
@@ -145,6 +160,6 @@ function RecordSentence {
           $job | Remove-Job -Force;
         }
 
-        $timingSuccess = Read-Host "Did the character timing succeed? Press (r) to try again, or enter key to continue"
+        $timingSuccess = Read-Char "Did the character timing succeed? Press (r) to try again, or enter key to continue"
     }
 }
