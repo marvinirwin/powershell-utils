@@ -1,7 +1,7 @@
 ﻿[string]$ltUser = $env:LT_USER;
 [string]$ltKeyPassword = $env:LT_KEY_PASSWORD;
 [securestring]$secStringPassword = ConvertTo-SecureString $ltKeyPassword -AsPlainText -Force;
-[pscredential]$credential = New-Object System.Management.Automation.PSCredential ($ltUser, $secStringPassword);
+[pscredential]$credential = New-Object System.Management.Automation.PSCredential($ltUser, $secStringPassword);
 
 function CopyFileToVideo {
     Param(
@@ -25,18 +25,37 @@ function HashString {
     return Get-FileHash -InputStream $mystream -Algorithm SHA256
 }
 
+function VideoFilename {
+      Param(
+        [string] [Parameter(Mandatory=$true)] $sentence
+    )
+    return "$(Get-StringHash $sentence).mov"
+}
+function JsonFilename {
+      Param(
+        [string] [Parameter(Mandatory=$true)] $sentence
+    )
+    return "$(Get-StringHash $sentence).json"
+}
+function SlowFilename {
+      Param(
+        [string] [Parameter(Mandatory=$true)] $sentence
+    )
+    return "slow_$(Get-StringHash $sentence).aac"
+}
+
 #http://jongurgul.com/blog/get-stringhash-get-filehash/ 
 Function Get-StringHash([String] $String,$HashName = "SHA1") {
-    $StringBuilder = New-Object System.Text.StringBuilder 
-    [System.Security.Cryptography.HashAlgorithm]::Create($HashName).ComputeHash([System.Text.Encoding]::UTF8.GetBytes($String)) | % { 
-        [Void]$StringBuilder.Append($_.ToString("x2")) 
-    } 
-    $StringBuilder.ToString() 
+    $StringBuilder = New-Object System.Text.StringBuilder;
+    [System.Security.Cryptography.HashAlgorithm]::Create($HashName).ComputeHash(
+            [System.Text.Encoding]::UTF8.GetBytes($String.Normalize([Text.NormalizationForm]::FormC))
+        ) | % {[Void]$StringBuilder.Append($_.ToString("x2"))}
+         
+    RETURN $StringBuilder.ToString() 
 }
 
 function RecordSpeechTiming {
     Param (
-        [string] [Parameter(Mandatory=$true)] $filename,
         [string] [Parameter(Mandatory=$true)] $sentence
     );
     # I'll assume normalized
@@ -47,7 +66,7 @@ function RecordSpeechTiming {
         "sentence" = $sentence;
         "timeScale" = 0.50;
         "characters" = @();
-        "filename" = "${filename}.mov";
+        "filename" = VideoFilename $sentence;
     };
     foreach($char in $charArray) {
         if($char -cmatch '[\u4e00-\u9fff]'){
@@ -57,23 +76,23 @@ function RecordSpeechTiming {
         $timestamp = $stopwatch.Elapsed.TotalMilliseconds;
         $object['characters'] += , @{'timestamp' = $timestamp; 'character' = $char};
     }
-    ConvertTo-Json $object | Set-Content -Encoding UTF8 "${filename}.json"
-    CopyFileToVideo "$filename.json";
+    ConvertTo-Json $object | Set-Content -Encoding UTF8 $(JsonFilename $sentence)
+    # CopyFileToVideo "$filename.json";
 };
 
 function CreateSlowedFile {
     Param (
-        [string] [Parameter(Mandatory=$true)] $filename
+        [string] [Parameter(Mandatory=$true)] $sentence
     );
-    $slowedFile = "slow_${filename}.aac";
-    Write-Host "Creating slowed file $slowedFile";
+
+    Write-Host "Creating slowed file $(SlowFilename $sentence)";
     ffmpeg.exe `
-        -loglevel fatal `
-        -i "${filename}.mov" `
+        -loglevel error `
+        -i $(VideoFilename $sentence) `
         -y `
         -vn `
         -filter:a "atempo=0.5" `
-        "$slowedFile";
+        $(SlowFilename $sentence);
 }
 
 function Read-Char() {
@@ -81,7 +100,7 @@ function Read-Char() {
         [string] [Parameter(Mandatory=$true)] $prompt
     );
     Write-Host $prompt;
-    $key = $Host.UI.RawUI.ReadKey();
+    $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');
     return $key.Character;
 }
 
@@ -89,51 +108,52 @@ function RecordSentence {
     Param (
         [string] [Parameter(Mandatory=$true)] $sentence
     );
-    $shouldRecord = Read-Char "Record $sentence ?  Press (y) to record, or enter to continue"
+    $shouldRecord = Read-Char "$sentence Record (y) Continue (Enter)"
 
     if ($shouldRecord -ne "y") {
         return;
     }
 
-    # Create a without invalid characters
-    $filename = Get-StringHash $sentence.Normalize([Text.NormalizationForm]::FormC);
-
     # Record the sentence to filename.mp4
-    Write-Host "Recording: $sentence press q to finish";
+    clear;
+    Write-Host "$sentence (press q to finish)";
 
     $recordSuccess = "r";
+    $videoFilter = "crop=in_w-900:in_h-200"
+    # -filter:v "transpose=1" 
     while ($recordSuccess -eq "r") {
         ffmpeg.exe -y `
-            -loglevel fatal `
+            -loglevel error `
             -f dshow `
             -rtbufsize 2G `
             -framerate 60 `
             -audio_buffer_size 30 `
-            -i video="Logitech BRIO":audio="Microphone (Logitech BRIO)" `
-            -filter:v "transpose=1" `
+            -i video="$env:WEBCAM":audio="$env:MICROPHONE" `
+            -filter:v $videoFilter `
             -preset ultrafast `
             -tune zerolatency `
-            "$filename.mov" `
+            $(VideoFilename $sentence) `
             -pix_fmt yuv420p `
+            -filter:v $videoFilter `
             -window_x -1 `
             -window_y -1 `
-            -vf scale=320:-1 `
+            -vf "$videoFilter,scale=320:-1" `
             -f sdl :0;
-        CopyFileToVideo "$filename.mov";
-        $recordSuccess = Read-Char "Did the recording succeed? Press (r) to try again, or enter to continue";
+        
+        $recordSuccess = Read-Char "Retry (r) Continue (Enter)";
     }
 
-    # Create a slowed version of the file "slow_$filename.mov"`
-    CreateSlowedFile $filename;
+    #CopyFileToVideo "$filename.mov";
 
-    $slowFilename = "slow_${filename}.aac";
+    CreateSlowedFile $sentence;
+
     # Play the slowed down audio
 
     $timingSuccess = "r";
 
     while ($timingSuccess -eq "r") {
         $job = Start-Job `
-            -InputObject $slowFilename `
+            -InputObject $(SlowFilename $sentence) `
             -Init ([ScriptBlock]::Create("Set-Location '$pwd'")) `
             -ScriptBlock { 
                 [Console]::OutputEncoding = [Text.Encoding]::Utf8;
@@ -155,11 +175,11 @@ function RecordSentence {
         try {
           Write-Host "Press any key once you hear the character below being pronounced";
           # Record the speech timing
-          RecordSpeechTiming $filename $sentence;
+          RecordSpeechTiming $sentence;
         } finally {
           $job | Remove-Job -Force;
         }
 
-        $timingSuccess = Read-Char "Did the character timing succeed? Press (r) to try again, or enter key to continue"
+        $timingSuccess = Read-Char "Retry (r) Continue (Enter)"
     }
 }
