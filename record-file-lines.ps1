@@ -41,13 +41,14 @@ while ($true) {
             }
         }
         o {
+            $sentences = File-Sentences $args[0];
             $sorted = $sentences `
                 | Sort-Object -Property lastModified -Descending `
                 | % { $_['sentence'].subString(0, [System.Math]::Min(10, $_['sentence'].Length))  } `
                 | % { "$($_)..." } `
                 | Select-Object -First 10;
 
-            $chosenSentenceIndex = menu -ReturnIndex $($sorted);
+            $chosenSentenceIndex = menu -ReturnIndex $sorted;
             RecordSentence $sentences[$chosenSentenceIndex]['sentence'];
         }
         default {

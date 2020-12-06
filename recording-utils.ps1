@@ -29,7 +29,13 @@ function VideoFilename {
       Param(
         [string] [Parameter(Mandatory=$true)] $sentence
     )
-    return "$(Get-StringHash $sentence).mov"
+    return "$(Get-StringHash $sentence).mkv"
+}
+function WebMFilename {
+      Param(
+        [string] [Parameter(Mandatory=$true)] $sentence
+    )
+    return "$(Get-StringHash $sentence).webm"
 }
 function JsonFilename {
       Param(
@@ -42,6 +48,12 @@ function SlowFilename {
         [string] [Parameter(Mandatory=$true)] $sentence
     )
     return "slow_$(Get-StringHash $sentence).aac"
+}
+function AudioFilename {
+      Param(
+        [string] [Parameter(Mandatory=$true)] $sentence
+    )
+    return "$(Get-StringHash $sentence).wav"
 }
 
 #http://jongurgul.com/blog/get-stringhash-get-filehash/ 
@@ -67,6 +79,7 @@ function RecordSpeechTiming {
         "timeScale" = 0.50;
         "characters" = @();
         "filename" = VideoFilename $sentence;
+        "audioFilename" = AudioFilename $sentence;
     };
     foreach($char in $charArray) {
         if($char -cmatch '[\u4e00-\u9fff]'){
@@ -94,6 +107,19 @@ function CreateSlowedFile {
         -filter:a "atempo=0.5" `
         $(SlowFilename $sentence);
 }
+function CreateAudioFile {
+    Param (
+        [string] [Parameter(Mandatory=$true)] $sentence
+    );
+
+    Write-Host "Creating audio file $(AudioFilename $sentence)";
+    ffmpeg.exe `
+        -loglevel error `
+        -i $(VideoFilename $sentence) `
+        -y `
+        -vn `
+        $(AudioFilename $sentence);
+}
 
 function Read-Char() {
     Param (
@@ -102,6 +128,18 @@ function Read-Char() {
     Write-Host $prompt;
     $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown');
     return $key.Character;
+}
+
+function CreateWebM () {
+    Param (
+        [string] [Parameter(Mandatory=$true)] $sentence
+    );
+    Write-Host "Creating WebM $(WebMFilename $sentence)";
+    ffmpeg.exe -y `
+            -loglevel error `
+            -i $(VideoFilename $sentence) `
+            $(WebMFilename $sentence);
+
 }
 
 function RecordSentence {
@@ -123,7 +161,7 @@ function RecordSentence {
     # -filter:v "transpose=1" 
     while ($recordSuccess -eq "r") {
         ffmpeg.exe -y `
-            -loglevel error `
+            -loglevel fatal `
             -f dshow `
             -rtbufsize 2G `
             -framerate 60 `
@@ -138,14 +176,18 @@ function RecordSentence {
             -window_x -1 `
             -window_y -1 `
             -vf "$videoFilter,scale=320:-1" `
-            -f sdl :0;
+            -f sdl :0 `
+            -vn `
+            $(AudioFilename $sentence);
         
         $recordSuccess = Read-Char "Retry (r) Continue (Enter)";
     }
 
-    #CopyFileToVideo "$filename.mov";
+    # CopyFileToVideo $(VideoFilename $sentenc);
 
+    CreateWebM $sentence;
     CreateSlowedFile $sentence;
+    CreateAudioFile $sentence;
 
     # Play the slowed down audio
 
@@ -182,4 +224,5 @@ function RecordSentence {
 
         $timingSuccess = Read-Char "Retry (r) Continue (Enter)"
     }
+    Remove-Item $(SlowFilename $sentence);
 }
