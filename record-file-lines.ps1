@@ -14,6 +14,7 @@ function File-Sentences() {
             'sentence' = $sentence 
             'lastModified' = $(Get-ChildItem $(JsonFilename $sentence) -ErrorAction SilentlyContinue | Select -ExpandProperty LastWriteTime)
         }) | Out-Null;
+
     }
     return $sentences;
 }
