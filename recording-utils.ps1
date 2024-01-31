@@ -1,4 +1,4 @@
-﻿[string]$ltUser = $env:LT_USER;
+﻿<# [string]$ltUser = $env:LT_USER;
 [string]$ltKeyPassword = $env:LT_KEY_PASSWORD;
 [securestring]$secStringPassword = ConvertTo-SecureString $ltKeyPassword -AsPlainText -Force;
 [pscredential]$credential = New-Object System.Management.Automation.PSCredential($ltUser, $secStringPassword);
@@ -14,16 +14,8 @@ function CopyFileToVideo {
         -LocalFile "$filename" `
         -Credential $credential `
         -KeyFile ~/.ssh/id_rsa;
-}
+} #>
 
-
-function HashString {
-    Param(
-        [string] [Parameter(Mandatory = $true)] $inputString
-    )
-    $stream = [IO.MemoryStream]::new([byte[]][char[]]$inputString)
-    return Get-FileHash -InputStream $mystream -Algorithm SHA256
-}
 
 function VideoFilename {
     Param(
@@ -55,6 +47,7 @@ function AudioFilename {
     )
     return "$(Get-StringHash $sentence).wav"
 }
+
 
 #http://jongurgul.com/blog/get-stringhash-get-filehash/ 
 Function Get-StringHash([String] $String, $HashName = "SHA1") {
@@ -164,6 +157,67 @@ function Upload-S3File {
     $s3Client.PutObject($putObjectRequest)
 }
 
+function insertToDatabase($sentence, $characterTimings) {
+    # Assumes SHA1 function exists
+    $sentenceHash = Get-StringHash $sentence
+
+    try {
+        # Configure and open the database connection
+        $connectionString = "Host=db-postgresql-sgp1-25152-do-user-4530359-0.b.db.ondigitalocean.com;Port=25060;Database=postgres;Username=doadmin;Password=AVNS_iN8DhlA7v3mVugbbrjH;"
+        $connection = New-Object -TypeName Npgsql.NpgsqlConnection -ArgumentList $connectionString
+        $connection.Open()
+
+        # Select existing rows
+        $selectCommand = $connection.CreateCommand()
+        $selectCommand.CommandText = "SELECT * FROM video_metadata WHERE sentence_hash = :hash;"
+        $selectCommand.Parameters.AddWithValue("hash", $sentenceHash)
+        $reader = $selectCommand.ExecuteReader()
+
+        $rows = while ($reader.Read()) { $reader.GetValue(0) }
+
+        # Close the reader
+        $reader.Close()
+
+        # Prepare base metadata
+        $baseMetadata = @{
+            "sentence"      = $sentence
+            "sentence_hash" = $sentenceHash
+            "metadata"      = ConvertTo-Json -InputObject @{
+                "sentence"      = $sentence
+                "timeScale"     = 0.5
+                "characters"    = $characterTimings
+                "filename"      = $sentenceHash + "-video"
+                "audioFilename" = $sentenceHash + "-audio"
+            }
+        }
+
+        $insertCommand = $connection.CreateCommand()
+        if ($rows.Count -gt 0) {
+            # Update existing metadata
+            $insertCommand.CommandText = "UPDATE video_metadata SET sentence = :sentence, sentence_hash = :hash, metadata = :metadata, s3_url = :url WHERE video_metadata_id = :id;"
+            $insertCommand.Parameters.AddWithValue("id", $rows[0])
+        }
+        else {
+            # Insert new metadata
+            $insertCommand.CommandText = "INSERT INTO video_metadata (sentence, sentence_hash, metadata, s3_url) VALUES (:sentence, :hash, :metadata, :url);"
+        }
+        $insertCommand.Parameters.AddWithValue("sentence", $baseMetadata["sentence"])
+        $insertCommand.Parameters.AddWithValue("hash", $baseMetadata["sentence_hash"])
+        $insertCommand.Parameters.AddWithValue("metadata", $baseMetadata["metadata"])
+        $insertCommand.Parameters.AddWithValue("url", "https://languagetrainer-documents.s3.us-west-2.amazonaws.com/" + $sentenceHash + "-video")
+
+        $insertCommand.ExecuteNonQuery() > 0
+    }
+    catch {
+        throw "Error: $_"
+    }
+    finally {
+        # Always close the connection, even if an error occurred
+        $connection.Close()
+    }
+}
+
+
 
 function RecordSentence {
     Param (
@@ -248,5 +302,21 @@ function RecordSentence {
 
         $timingSuccess = Read-Char "Retry (r) Continue (Enter)"
     }
+    
+    $audioKey = Get-StringHash $sentence + '-audio'
+    $videoKey = Get-StringHash $sentence + '-video'
+
+    # Upload video and audio files to S3
+    Write-Host "Preparing to upload files to S3..."
+    Upload-S3File -key $audioKey -file $audioFile
+    Upload-S3File -key $videoKey -file $videoFile
+    Write-Host "Files uploaded successfully to S3."
+
+    Write-Host "Setting database record"
+    $jsonFilename = JsonFilename $sentence
+    $characterTimings = Get-Content $jsonFilename | ConvertFrom-Json
+    insertToDatabase $sentence $characterTimings
+    Write-Host "Finished setting database record"
+
     Remove-Item $(SlowFilename $sentence);
 }
